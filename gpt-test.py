@@ -6,9 +6,9 @@ from bs4 import BeautifulSoup
 apikey = open("apikey.txt", "r")
 openai.api_key = apikey.read()
 
-#symptom_list = input("What are your symptoms?")
+symptom_list = input("What are your symptoms?")
 
-symptom_list = "diarrhea, bleeding, stomach pain"
+#symptom_list = "diarrhea, bleeding, stomach pain"
 
 def draft_response(symptoms, gpt_model = "gpt-3.5-turbo"):
     """
@@ -176,15 +176,15 @@ def format_scrape(link, gpt_model = "gpt-3.5-turbo-16k"):
         finished_completion = False
         while not finished_completion:
             #print("Made it here")
-            try:
-                response = openai.ChatCompletion.create(
-                    model=gpt_model,
-                    messages = message,
-                    temperature=0,
-                    max_tokens=1000,
-                    frequency_penalty=0.0
-                )
-                finished_completion = True
+            response = openai.ChatCompletion.create(
+                model=gpt_model,
+                messages = message,
+                temperature=0,
+                max_tokens=1000,
+                frequency_penalty=0.0
+            )
+            finished_completion = True
+            """
             except:
                 #print("Exception raised")
                 if token_count >= 100:
@@ -192,9 +192,54 @@ def format_scrape(link, gpt_model = "gpt-3.5-turbo-16k"):
                 else:
                     response = "Defective"
                     finished_completion = True
+            """
         #print(response["choices"][0]["message"]["content"])
         return response
 
+def compile_response(symptoms, disease, source, gpt_model = "gpt-3.5-turbo-16k"):
+    """
+    Parameters:
+    symptoms: A list of symptoms input as a string, likely written by the end-user from input() in the draft or output by the front end in the final.
+    disease: the name of a disease.
+    source: A Web source describing the disease.
+    model: the keyword of the LLM used (we're only using "chat" models for now). Tested ones include gpt-3.5-turbo and gpt-4.
+    Returns:
+    response: A response output by a GPT model giving a "draft response" of different possible diagnoses.
+    """
+
+    lead_text = """
+    You are a medical researcher and expert in all sorts of diseases. You are currently working on a paper on effective communication strategies for doctors.
+    Your assistant has presented you with a series of symptoms found in the literature, a possible disease associated with those symptoms, and a reputable Internet source
+    on this disease. The case report mentioned that the patient was experiencing """ + symptoms + """, and your assistant thinks the cause may be """ + disease + """. Your assistant has attached a resource on """ + disease + """ as follows:
+
+    """
+
+
+    end_text = """
+
+    Since you're not talking to a patient, but discussing a patient in the literature for a paper, you do not need to include lengthy disclaimers about the need to consult doctors; your assistant knows this. However, you should
+    not write your response as if addressed to your assistant. Instead, since this is a paper on communication strategies, you should address your response as if it was to the patient in the literature. Still be sure to use a brief
+    and fairly informal communication style.
+
+    Take a deep breath and then find out whether your assistant's assessment of the disease makes sense, given the reported symptoms and the web resource about the disease. If not, say "I'm sorry; according to the websites,
+    this disease wasn't quite what you have." If so, summarize the web
+    resource in a way that is easily readable by a layperson.
+    """
+
+
+    prompt = lead_text + source + end_text
+
+    #print(prompt)
+    message=[{"role": "user", "content": prompt}]
+    response = openai.ChatCompletion.create(
+        model=gpt_model,
+        messages = message,
+        temperature=0,
+        max_tokens=1000,
+        frequency_penalty=0.0
+    )
+    #print(response["choices"][0]["message"]["content"])
+    return response
 
 
 
@@ -205,18 +250,36 @@ diagnosis_list_wnums = dl_01["choices"][0]["message"]["content"].split("\n")
 diagnosis_list = [x[3:] for x in diagnosis_list_wnums]
 
 print("Possible diagnoses:")
+
 for x in diagnosis_list:
     print(x)
+diagnosis_link_dict = {}
+for i, diagnosis in enumerate(diagnosis_list):
+    links_raw=format_link_list(diagnosis)
+    list_of_links = links_raw["choices"][0]["message"]["content"].split("\n")
+    print("Possible resources for " + diagnosis + ":")
+    for x in list_of_links:
+        print(x)
+    print("Looking through websites; this may take some time.")
+    polished_scraped_links = []
+    for link in list_of_links:
+        scrape = format_scrape(link)
+        if scrape == "Defective":
+            print("Got a bad link")
+        if scrape != "Defective":
+            polished_scraped_links.append(scrape["choices"][0]["message"]["content"])
+            break
+    diagnosis_link_dict[diagnosis] = polished_scraped_links
+    print("Website information found!")
 
-links_raw=format_link_list(diagnosis_list[2])
-list_of_links = links_raw["choices"][0]["message"]["content"].split("\n")
+print("Explanations of possible diagnoses:")
 
-print("Possible resources for " + diagnosis_list[2])
-for x in list_of_links:
-    print(x)
+for disease in diagnosis_link_dict:
+    print(disease)
+    print(compile_response(symptom_list, disease, diagnosis_link_dict[disease][0])["choices"][0]["message"]["content"])
 
-raw_scraped_links = [format_scrape(x)["choices"][0]["message"]["content"] for x in list_of_links]
-scraped_links = [x for x in raw_scraped_links if x != "Defective"]
+
+
 
     
 
