@@ -8,7 +8,7 @@ openai.api_key = apikey.read()
 
 #symptom_list = input("What are your symptoms?")
 
-symptom_list = "diarrhea, bleeding, stomach pain"
+#symptom_list = "diarrhea, bleeding, stomach pain"
 #symptom_list = "shortness of breath, fever, fatigue, dry cough"
 #symptom_list = "headache, vomiting, fatigue"
 
@@ -18,7 +18,7 @@ def draft_response(symptoms, gpt_model = "gpt-4"):
     symptoms: A list of symptoms input as a string, likely written by the end-user from input() in the draft or output by the front end in the final.
     model: the keyword of the LLM used (we're only using "chat" models for now). Tested ones include gpt-3.5-turbo and gpt-4.
     Returns:
-    response: A response output by a GPT model giving a "draft response" of different possible diagnoses.
+    response: A response output by a GPT model giving a "draft response" of different possible diagnoses, as a Python string.
     """
 
     lead_text = """
@@ -46,16 +46,15 @@ def draft_response(symptoms, gpt_model = "gpt-4"):
         max_tokens=1000,
         frequency_penalty=0.0
     )
-    #print(response["choices"][0]["message"]["content"])
-    return response
+    return response["choices"][0]["message"]["content"]
 
 def format_diagnosis_list(diagnoses, gpt_model = "gpt-3.5-turbo"):
     """
     Parameters:
-    diagnoses: A GPT-generated output containing a list of diagnoses in whatever format.
+    diagnoses: A GPT-generated output containing a list of diagnoses in a Python string in whatever format (i.e. output from draft_response).
     model: the keyword of the LLM used (we're only using "chat" models for now). Tested ones include gpt-3.5-turbo and gpt-4.
     Returns:
-    response: A response output by a GPT model giving a list of symptoms written in a formulaic manner that can easily be searched by a medical API.
+    response: A Python list of possible diagnoses.
     """
     lead_text = """
     You are an expert at parsing text and making ordered lists.
@@ -87,16 +86,15 @@ def format_diagnosis_list(diagnoses, gpt_model = "gpt-3.5-turbo"):
         max_tokens=1000,
         frequency_penalty=0.0
     )
-    #print(response["choices"][0]["message"]["content"])
-    return response
+    return [x[3:] for x in response["choices"][0]["message"]["content"].split("\n")]
 
 def format_link_list(disease, gpt_model = "gpt-4"):
     """
     Parameters:
-    disease: the name of a disease.
+    disease: the name of a disease (an element from  the format_diagnosis_list list - loop over that).
     model: the keyword of the LLM used (we're only using "chat" models for now). Tested ones include gpt-3.5-turbo and gpt-4.
     Returns:
-    response: A list of links to sources on the disease.
+    response: A list of links to sources on the disease, as a Python list.
     """
     lead_text = """
     You are an expert research librarian at a top-ranked medical school.
@@ -127,12 +125,12 @@ def format_link_list(disease, gpt_model = "gpt-4"):
         frequency_penalty=0.0
     )
     #print(response["choices"][0]["message"]["content"])
-    return response
+    return response["choices"][0]["message"]["content"].split("\n")
 
 def format_scrape(link, gpt_model = "gpt-3.5-turbo-16k"):
     """
     Parameters:
-    link: a link discussing a disease.
+    link: a link discussing a disease. (an element from the format_link_list list - loop over that).
     model: the keyword of the LLM used (we're only using "chat" models for now). Tested ones include gpt-3.5-turbo-16k, gpt-3.5-turbo and gpt-4.
     Returns:
     response: A version of the website trimmed of all gibberish. Alternatively, return the text "Defective" if the website didn't scrape.
@@ -181,15 +179,17 @@ def format_scrape(link, gpt_model = "gpt-3.5-turbo-16k"):
             except openai.error.InvalidRequestError:
                 response = "Defective"
                 finished_completion = True
-        #print(response["choices"][0]["message"]["content"])
-        return response
+        if response != "Defective":
+            return response["choices"][0]["message"]["content"]
+        else:
+            return response
 
 def compile_response(symptoms, disease, source, gpt_model = "gpt-3.5-turbo"):
     """
     Parameters:
-    symptoms: A list of symptoms input as a string, likely written by the end-user from input() in the draft or output by the front end in the final.
-    disease: the name of a disease.
-    source: A Web source describing the disease.
+    symptoms: A list of symptoms input as a string, likely written by the end-user from input() in the draft or output by the front end in the final. (i.e. the first thing passed to draft_response)
+    disease: the name of a disease. (i.e. something passed into format_link_list, or output in the list from format_diagnosis_list)
+    source: A Web source describing the disease (i.e. output from a format_scrape call that isn't Defective)
     model: the keyword of the LLM used (we're only using "chat" models for now). Tested ones include gpt-3.5-turbo and gpt-4.
     Returns:
     response: A response output by a GPT model giving a "draft response" of different possible diagnoses.
@@ -235,53 +235,36 @@ def compile_response(symptoms, disease, source, gpt_model = "gpt-3.5-turbo"):
         max_tokens=1000,
         frequency_penalty=0.0
     )
-    #print(response["choices"][0]["message"]["content"])
-    return response
+    return response["choices"][0]["message"]["content"]
 
-
-
-response_01 = draft_response(symptom_list)
-print("Found some possible diagnoses.")
-dl_01 = format_diagnosis_list(response_01["choices"][0]["message"]["content"])
-diagnosis_list_wnums = dl_01["choices"][0]["message"]["content"].split("\n")
-diagnosis_list = [x[3:] for x in diagnosis_list_wnums]
-
-print("Possible diagnoses:")
-
-for x in diagnosis_list:
-    print(x)
-diagnosis_link_dict = {}
-for i, diagnosis in enumerate(diagnosis_list):
-    links_raw=format_link_list(diagnosis)
-    list_of_links = links_raw["choices"][0]["message"]["content"].split("\n")
-    print("Possible resources for " + diagnosis + ":")
-    for x in list_of_links:
+if __name__ == "__main__":
+    symptom_list = input("What are your symptoms?")
+    draft = draft_response(symptom_list)
+    disease_list = format_diagnosis_list(draft)
+    print("Possible diseases:")
+    for x in disease_list:
         print(x)
-    print("Looking through websites; this may take some time.")
-    polished_scraped_links = []
-    for link in list_of_links:
-        scrape = format_scrape(link)
-        if scrape == "Defective":
-            print("Got a bad link.")
-        else:
-            print("Found a website!")
-            polished_scraped_links.append(scrape["choices"][0]["message"]["content"])
-            break
-    diagnosis_link_dict[diagnosis] = polished_scraped_links
-    if polished_scraped_links:
-        print("Moving on to the next diagnosis.")
-    else:
-        print("Sorry, but we couldn't find any websites that worked.")
+    for disease in disease_list:
+        links = format_link_list(disease)
+        print("Possible sources on " + disease + ":")
+        for x in links:
+            print(x)
+        website = ""
+        for link in links:
+            print("Testing a website")
+            website = format_scrape(link)
+            if website != "Defective":
+                print("Website found!")
+                break
+        if website != "Defective":
+            compiled_output = compile_response(symptom_list, disease, website)
+            print(compiled_output)
+        
 
-print("Explanations of possible diagnoses:")
 
-for disease in diagnosis_link_dict:
-    if diagnosis_link_dict[disease]:
-        print("SYMPTOM ASSESSMENT\n\n")
-        print(disease)
-        print("\n\n")
-        print(compile_response(symptom_list, disease, diagnosis_link_dict[disease][0])["choices"][0]["message"]["content"])
-        print("\n\n")
+
+
+
 """
 
 test_symptoms = "shortness of breath, fever, fatigue, dry cough"
